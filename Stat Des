@@ -1,0 +1,336 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import calendar
+import numpy as np
+import time
+
+
+
+##Lecture des bases de données
+
+meteo=pd.read_excel("/Users/tiber/Documents/Projet Python/MeteoRegion2020.xlsx")
+conso=pd.read_excel("/Users/tiber/Documents/Projet Python/conso-quot-brute-régional.xlsx")
+prevision= pd.read_excel("/Users/tiber/Documents/Projet Python/Données de l'AFP prévision.xlsx")
+##Premiere fonction
+
+
+def trans_timetofloat(x):
+    return x.hour+x.minute/60.0
+
+def trans_jour(x):
+    return x[8:10]
+    
+def trans_mois(x):
+    return x[5:7]
+
+def jour_semaine(x):
+    int_mois=int(x[5:7])
+    int_jour=int(x[8:10])
+    return calendar.weekday(2020,int_mois,int_jour)
+
+def pond_pop(x):
+    return Pop_region[x]
+
+def conso_moy(region,date):
+    return consogaz[(consogaz['Region']==region)&(consogaz['Date']==date)][['Date','Consommation brute gaz (MW)']].groupby('Date').mean()
+
+def opti(reg) :
+    return dict_prev_opti[reg]
+
+def laisser_aller (reg):
+    prevision[prevision['Région']=='Normandie'].iloc[0]['Laisser faire']
+    
+
+##Organisation des DF
+
+
+meteo.drop(['Donnee_Extr', 'Visibility_km','CloudCoverage_percent'], axis = 1, inplace = True)
+meteo['TempMoy_Deg']=(meteo['TempMax_Deg']+meteo['TempMin_Deg'])/2
+meteo=meteo[['region', 'day','TempMoy_Deg']]
+            
+conso.drop(['Code INSEE r√©gion','Statut - RTE','Date - Heure','Consommation brute gaz (MW PCS 0¬∞C) - GRTgaz', 'Statut - GRTgaz',
+'Consommation brute gaz (MW PCS 0¬∞C) - Ter√©ga', 'Statut - Ter√©ga'],axis=1, inplace= True)
+
+
+conso['Region'].unique
+conso['Region']=conso['Region'].map({'Provence-Alpes-C√¥te d\'Azur':'Provence-Alpes-Cote-d Azur',
+                             '√éle-de-France':'Ile de France',
+                             'Nouvelle-Aquitaine':'Nouvelle-Aquitaine',
+                             'Occitanie':'Occitanie',
+                             'Grand Est':'Grand Est',
+                             'Pays de la Loire':'Pays de la Loire',
+                             'Bretagne' : 'Bretagne',
+                             'Hauts-de-France': 'Hauts-de-France',
+                             'Centre-Val de Loire': 'Centre-Val de Loire',
+                             'Normandie': 'Normandie',
+                             'Bourgogne-Franche-Comt√©':'Bourgogne Franche Comté',
+                             'Auvergne-Rh√¥ne-Alpes':'Auvergne Rohne Alpes'})
+
+Pop_region = {'Provence-Alpes-Cote-d Azur':5055700,'Ile de France':12278200,'Nouvelle-Aquitaine':6000000,'Occitanie':5924000,'Grand Est':5511700,'Pays de la Loire':3801000,'Bretagne':3340400,'Hauts-de-France':5962700,'Centre-Val de Loire':2559100,'Normandie':3303500,'Bourgogne Franche Comté':2783000,'Auvergne Rohne Alpes':8032400}
+
+
+Dico_reg={'aquitaine':'Nouvelle-Aquitaine','bretagne':'Bretagne','alsace':'Grand Est','auvergne':'Auvergne Rohne Alpes',
+                                     'franche-comte':'Bourgogne Franche Comté','ardeche':'Auvergne Rohne Alpes',
+                                     'poitou-charentes':'Nouvelle-Aquitaine','rh-ne-alpes':'Auvergne Rohne Alpes',
+                                     'provence-alpes-c-te-d-azur':'Provence-Alpes-Cote-d Azur','limousin': 'Nouvelle-Aquitaine',
+                                     'lorraine':'Grand Est','picardie':'Hauts-de-France','champagne-ardenne':'Grand Est','nord-pas-de-calais':'Haut-de-France', 
+                                     'bourgogne':'Bourgogne Franche Comté','centre':'Centre-Val de Loire','ile-de-france':'Ile de France','languedoc-roussillon':'Occitanie','midi-pyrenees' :'Occitanie','normandie':'Normandie','pays-de-la-loire':'Pays de la Loire','corse':'to_remove','ile-de-re':'to_remove'}
+
+meteo=meteo.replace({'region': Dico_reg})
+
+meteo=meteo.drop(meteo[(meteo['region']=='to_remove')].index,axis=0)
+
+
+                                   
+conso=conso.assign(Rapport_conso_Heure_gaz=0)
+conso=conso.assign(Rapport_conso_Heure_elec=0)
+conso['Heure']=conso['Heure'].transform(trans_timetofloat)
+conso['Date']=conso['Date'].astype(str)
+conso['Jour']=conso['Date'].transform(trans_jour)
+conso['Mois']=conso['Date'].transform(trans_mois)
+conso['Jour semaine']=conso['Date'].transform(jour_semaine)
+conso['Mois']=conso['Mois'].astype(int)
+
+conso['Jour semaine'] = conso['Jour semaine'].map({0:'Dimanche',1:'Lundi',2:'Mardi',3:'Mercredi',
+                                                   4:'Jeudi',5:'Vendredi',6:'Samedi'})
+
+consogaz= conso[['Mois','Jour','Jour semaine','Heure','Region','Consommation brute gaz (MW)','Date']]
+consoelec=conso[['Mois','Jour','Jour semaine','Heure','Region','Consommation brute elecricite (MW)','Date']]
+consogaz['Consommation brute gaz (MW)'].replace('', np.nan, inplace=True)
+consoelec['Consommation brute elecricite (MW)'].replace('', np.nan, inplace=True)
+consogaz.dropna(subset=['Consommation brute gaz (MW)'], inplace=True)
+consoelec.dropna(subset=['Consommation brute elecricite (MW)'], inplace=True)
+
+conso['Consommation brute totale (W)']=conso['Consommation brute totale (MW)']*1000000
+consogaz['Consommation brute gaz (W)']=consogaz['Consommation brute gaz (MW)']*1000000
+consoelec['Consommation brute elec (W)']=consoelec['Consommation brute elecricite (MW)']*1000000
+consogaz['Mois']=consogaz['Mois'].astype(int)
+consoelec['Mois']=consoelec['Mois'].astype(int)
+## Lecture sur l'été gaz:
+    
+
+consogaz_ete=consogaz[(consogaz['Mois']<9) & (consogaz['Mois']>5)]
+
+consogaz_ete['Consogaz/hab']=consogaz_ete['Consommation brute gaz (W)']/consogaz_ete['Region'].transform(pond_pop)
+conso_moy_gaz_heure_pond_ete=consogaz_ete[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_gaz_heure_pond_ete=conso_moy_gaz_heure_pond_ete.reset_index(level='Heure')
+
+plt.plot(conso_moy_gaz_heure_pond_ete['Heure'],conso_moy_gaz_heure_pond_ete['Consogaz/hab'])
+plt.title('Evolution de la consomation par heure en été par habitant')
+plt.xlabel('Heure')
+plt.ylabel('Consommation gaz estivale (par hab')
+plt.show()
+
+
+## Lecture hiver gaz:
+consogaz_hiver=consogaz[(consogaz['Mois']<4) | (consogaz['Mois']==12) | (consogaz['Mois']==11)]
+
+
+
+consogaz_hiver['Consogaz/hab']=consogaz_hiver['Consommation brute gaz (W)']/consogaz_hiver['Region'].transform(pond_pop)
+conso_moy_gaz_heure_pond_hiver=consogaz_hiver[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_gaz_heure_pond_hiver=conso_moy_gaz_heure_pond_hiver.reset_index(level='Heure')
+
+
+plt.plot(conso_moy_gaz_heure_pond_hiver['Heure'],conso_moy_gaz_heure_pond_hiver['Consogaz/hab'])
+plt.title('Evolution de la consomation par heure en hiver par habitant')
+plt.xlabel('Heure')
+plt.ylabel('Consommation gaz hivernale par habitant')
+plt.show()
+
+## Lecture sur l'été elec:
+
+consoelec_ete=consoelec[(consoelec['Mois']<9) & (consoelec['Mois']>5)]
+consoelec_ete['Consogaz/hab']=consoelec_ete['Consommation brute elec (W)']/consoelec_ete['Region'].transform(pond_pop)
+conso_moy_elec_heure_pond_ete=consogaz_ete[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_elec_heure_pond_ete=conso_moy_elec_heure_pond_ete.reset_index(level='Heure')
+
+plt.plot(conso_moy_elec_heure_pond_ete['Heure'],conso_moy_elec_heure_pond_ete['Consogaz/hab'])
+plt.title('Evolution de la consomation en élétricité par heure par habitant en été')
+plt.xlabel('Heure')
+plt.ylabel('Consommation en éléctricité estivale (par hab)')
+plt.show()
+
+## Lecture sur l'hiver elec:
+
+consoelec_hiver=consoelec[(consoelec['Mois']<4) | (consoelec['Mois']==12) | (consoelec['Mois']==11)]
+consoelec_hiver['Consogaz/hab']=consoelec_hiver['Consommation brute elec (W)']/consoelec_hiver['Region'].transform(pond_pop)
+conso_moy_elec_heure_pond_hiver=consoelec_hiver[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_elec_heure_pond_hiver=conso_moy_elec_heure_pond_hiver.reset_index(level='Heure')
+
+plt.plot(conso_moy_elec_heure_pond_hiver['Heure'],conso_moy_elec_heure_pond_hiver['Consogaz/hab'])
+plt.title('Evolution de la consomation en élétricité par heure par habitant en hiver')
+plt.xlabel('Heure')
+plt.ylabel('Consommation en éléctricité estivale (par hab)')
+plt.show()
+
+
+## Test affichage double elec
+
+consoelec_ete=consoelec[(consoelec['Mois']<9) & (consoelec['Mois']>5)]
+consoelec_ete['Consogaz/hab']=consoelec_ete['Consommation brute elec (W)']/consoelec_ete['Region'].transform(pond_pop)
+conso_moy_elec_heure_pond_ete=consogaz_ete[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_elec_heure_pond_ete=conso_moy_elec_heure_pond_ete.reset_index(level='Heure')
+
+
+consoelec_hiver=consoelec[(consoelec['Mois']<4) | (consoelec['Mois']==12) | (consoelec['Mois']==11)]
+consoelec_hiver['Consogaz/hab']=consoelec_hiver['Consommation brute elec (W)']/consoelec_hiver['Region'].transform(pond_pop)
+conso_moy_elec_heure_pond_hiver=consoelec_hiver[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_elec_heure_pond_hiver=conso_moy_elec_heure_pond_hiver.reset_index(level='Heure')
+
+plt.plot(conso_moy_elec_heure_pond_hiver['Heure'],conso_moy_elec_heure_pond_hiver['Consogaz/hab'],label='Consomation en Hiver',color='r')
+plt.plot(conso_moy_elec_heure_pond_ete['Heure'],conso_moy_elec_heure_pond_ete['Consogaz/hab'], label= 'Consommation en été',color='g')
+plt.legend(loc=7)
+plt.title('Evolution de la consomation en élétricité par heure par habitant (W)')
+plt.xlabel('Heure')
+plt.ylabel('Consommation en éléctricité (par hab)')
+plt.show()
+
+## Test affichage double gaz
+
+    
+
+consogaz_ete=consogaz[(consogaz['Mois']<9) & (consogaz['Mois']>5)]
+consogaz_ete['Consogaz/hab']=consogaz_ete['Consommation brute gaz (W)']/consogaz_ete['Region'].transform(pond_pop)
+conso_moy_gaz_heure_pond_ete=consogaz_ete[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_gaz_heure_pond_ete=conso_moy_gaz_heure_pond_ete.reset_index(level='Heure')
+
+consogaz_hiver=consogaz[(consogaz['Mois']<4) | (consogaz['Mois']==12) | (consogaz['Mois']==11)]
+consogaz_hiver['Consogaz/hab']=consogaz_hiver['Consommation brute gaz (W)']/consogaz_hiver['Region'].transform(pond_pop)
+conso_moy_gaz_heure_pond_hiver=consogaz_hiver[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_gaz_heure_pond_hiver=conso_moy_gaz_heure_pond_hiver.reset_index(level='Heure')
+
+
+plt.plot(conso_moy_gaz_heure_pond_hiver['Heure'],conso_moy_gaz_heure_pond_hiver['Consogaz/hab'],label= "Consommation en Été",c='g')
+plt.plot(conso_moy_gaz_heure_pond_ete['Heure'],conso_moy_gaz_heure_pond_ete['Consogaz/hab'],label="Consommation en Hiver",c='r')
+plt.title('Evolution de la consomation par heure et par habitant (W)',fontsize=20)
+plt.legend()
+plt.xticks(np.arange(0, 24,1))
+plt.ylabel('Consommation gaz hivernale par habitant',fontsize=15)
+plt.xlabel('Heure',fontsize=15)
+plt.show()
+
+## Test Affichage de toutes les régions gaz ETE
+## consogaz_reg[(consogaz['Mois']<9) & (consogaz_reg['Mois']>5)]
+for reg in conso['Region'].unique():
+    consogaz_reg=consogaz[consogaz['Region']==reg]
+    consogaz_ete_reg=consogaz_reg[(consogaz['Mois']<9) & (consogaz_reg['Mois']>5)]
+    consogaz_ete_reg['Consogaz/hab']=consogaz_ete_reg['Consommation brute gaz (W)']/Pop_region[reg]
+    conso_moy_gaz_heure_pond_ete_reg=consogaz_ete_reg[['Heure','Consogaz/hab']].groupby('Heure').mean()
+    conso_moy_gaz_heure_pond_ete_reg=conso_moy_gaz_heure_pond_ete_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_gaz_heure_pond_ete_reg['Heure'],conso_moy_gaz_heure_pond_ete_reg['Consogaz/hab'],label=reg)
+    plt.legend()
+    plt.xticks(np.arange(0, 24,1))
+    plt.ylabel('Consommation de Gaz(W)',fontsize=15)
+    plt.xlabel('Heure',fontsize=15)
+    plt.title('Consommation de gaz par habitant et en été selon les régions', fontsize=20)
+    
+## Test Affichage de toutes les régions Hiver GAZ
+
+for reg in conso['Region'].unique():
+    consogaz_reg=consogaz[consogaz['Region']==reg]
+    consogaz_hiv_reg=consogaz_reg[(consogaz_reg['Mois']<4) | (consogaz_reg['Mois']==12) | (consogaz_reg['Mois']==11)]
+    consogaz_hiv_reg['Consogaz/hab']=consogaz_hiv_reg['Consommation brute gaz (W)']/Pop_region[reg]
+    conso_moy_gaz_heure_pond_hiv_reg=consogaz_hiv_reg[['Heure','Consogaz/hab']].groupby('Heure').mean()
+    conso_moy_gaz_heure_pond_hiv_reg=conso_moy_gaz_heure_pond_hiv_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_gaz_heure_pond_hiv_reg['Heure'],conso_moy_gaz_heure_pond_hiv_reg['Consogaz/hab'],label=reg)
+    plt.legend()
+    plt.xticks(np.arange(0, 24,1))
+    plt.ylabel('Consommation de Gaz en hiver et par habitant',fontsize=15)
+    plt.xlabel('Heure',fontsize=15)
+    plt.title('Consommation de Gaz (W)', fontsize=20)
+    
+    
+## Test Affichage de toutes les régions Hiver ELEC
+for reg in conso['Region'].unique():
+    consoelec_reg=consoelec[consoelec['Region']==reg]
+    consoelec_hiv_reg=consoelec_reg[(consoelec_reg['Mois']<4) | (consoelec_reg['Mois']==12) | (consoelec_reg['Mois']==11)]
+    consoelec_hiv_reg['Consoelec/hab']=consoelec_hiv_reg['Consommation brute elec (W)']/Pop_region[reg]
+    conso_moy_elec_heure_pond_hiv_reg=consoelec_hiv_reg[['Heure','Consoelec/hab']].groupby('Heure').mean()
+    conso_moy_elec_heure_pond_hiv_reg=conso_moy_elec_heure_pond_hiv_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_elec_heure_pond_hiv_reg['Heure'],conso_moy_elec_heure_pond_hiv_reg['Consoelec/hab'],label=reg)
+    plt.legend()
+    plt.xticks(np.arange(0, 24,1))
+    plt.ylabel('Consommation élécricité (W)',fontsize=15)
+    plt.xlabel('Heure',fontsize=15)
+    plt.title('Consommation d élécricité par habitant en hiver', fontsize=20)
+
+## Test Affichage de toutes les régions ETE ELEC
+
+for reg in conso['Region'].unique():
+    consoelec_reg=consoelec[consoelec['Region']==reg]
+    consoelec_ete_reg= consoelec_reg[(consoelec['Mois']<9) & (consoelec_reg['Mois']>5)]
+    consoelec_ete_reg['Consoelec/hab']=consoelec_ete_reg['Consommation brute elec (W)']/Pop_region[reg]
+    conso_moy_elec_heure_pond_ete_reg=consoelec_ete_reg[['Heure','Consoelec/hab']].groupby('Heure').mean()
+    conso_moy_elec_heure_pond_ete_reg=conso_moy_elec_heure_pond_ete_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_elec_heure_pond_ete_reg['Heure'],conso_moy_elec_heure_pond_ete_reg['Consoelec/hab'],label=reg)
+    plt.legend()
+    plt.xticks(np.arange(0, 24,1))
+    plt.ylabel('Consommation élécricité (W)',fontsize=15)
+    plt.xlabel('Heure',fontsize=15)
+    plt.title('Consommation d élécricité par habitant en été', fontsize=20)
+    
+## Test Affichage de toutes les régions totale en été
+for reg in conso['Region'].unique():
+    conso_reg=conso[conso['Region']==reg]
+    conso_ete_reg= conso_reg[(conso_reg['Mois']<9) & (conso_reg['Mois']>5)]
+    conso_ete_reg['Consoelec/hab']=conso_ete_reg['Consommation brute totale (W)']/Pop_region[reg]
+    conso_ete_reg = conso_ete_reg.dropna(subset=['Consoelec/hab'])
+    conso_moy_heure_pond_ete_reg=conso_ete_reg[['Heure','Consoelec/hab']].groupby('Heure').mean()
+    conso_moy_heure_pond_ete_reg=conso_moy_heure_pond_ete_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_heure_pond_ete_reg['Heure'],conso_moy_heure_pond_ete_reg['Consoelec/hab'],label=reg)
+    plt.legend()
+    plt.xticks(np.arange(0, 24,1))
+    plt.ylabel('Consommation d énergie(W)',fontsize=15)
+    plt.xlabel('Heure',fontsize=15)
+    plt.title('Consommation en énergie par habitant en été', fontsize=20)
+plt.show()
+    
+
+## Test Affichage de toutes les régions totale en hiver
+for reg in conso['Region'].unique():
+    conso_reg=conso[conso['Region']==reg]
+    conso_hiv_reg= conso_reg[(conso_reg['Mois']<4) | (conso_reg['Mois']==11) | (conso_reg['Mois']==12)]   
+    conso_hiv_reg['Consoelec/hab']=conso_hiv_reg['Consommation brute totale (W)']/Pop_region[reg]
+    conso_hiv_reg = conso_hiv_reg.dropna(subset=['Consoelec/hab'])
+    conso_moy_heure_pond_hiv_reg=conso_hiv_reg[['Heure','Consoelec/hab']].groupby('Heure').mean()
+    conso_moy_heure_pond_hiv_reg=conso_moy_heure_pond_hiv_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_heure_pond_hiv_reg['Heure'],conso_moy_heure_pond_hiv_reg['Consoelec/hab'],label=reg)
+    plt.legend()
+    plt.xticks(np.arange(0, 24,1))
+    plt.ylabel('Consommation d énergie(W)',fontsize=15)
+    plt.xlabel('Heure',fontsize=15)
+    plt.title('Consommation en énergie par habitant en hiver', fontsize=20)
+plt.show()
+
+## Différence Semaine week end
+conso['Population Region']= conso['Region'].transform(pond_pop)
+conso_sem=conso[(conso['Jour semaine']=='Samedi') | (conso['Jour semaine']=='Dimanche') ]
+conso_sem.dropna(subset=['Consommation brute totale (W)'], inplace=True)
+
+conso_we =conso[(conso['Jour semaine']=='Lundi') | (conso['Jour semaine']=='Dimanche') | (conso['Jour semaine']=='Mardi')| (conso['Jour semaine']=='Mercredi') | (conso['Jour semaine']=='Jeudi')| (conso['Jour semaine']=='Vendredi')]
+conso_we.dropna(subset=['Consommation brute totale (W)'], inplace=True)
+
+conso_we_moy= conso_we[['Heure','Consommation brute totale (W)']].groupby('Heure').mean()
+conso_we_moy= conso_we_moy.reset_index(level='Heure')
+
+conso_sem_moy=conso_sem[['Heure','Consommation brute totale (W)']].groupby('Heure').mean()
+conso_sem_moy=conso_sem_moy.reset_index(level='Heure')
+
+plt.plot(conso_we_moy['Heure'],conso_we_moy['Consommation brute totale (W)'],label= "Consommation en week end",c='g')
+
+
+plt.plot(conso_sem_moy['Heure'],conso_sem_moy['Consommation brute totale (W)'],label="Consommation en semaine",c='r')
+plt.legend()
+plt.xticks(np.arange(0, 24,1))
+plt.ylabel('Consommation d énergie (W)',fontsize=15)
+plt.xlabel('Heure',fontsize=15)
+plt.title('Consommation en énergie en France selon les heures', fontsize=20)
+plt.show()
+
+# Mise en place du modéle de prédiction:
+prevision=prevision[['Région','Optimiste','Laisser faire']].groupby('Région').mean()
+prevision= prevision.reset_index(level='Région')
+
+meteo['Scenario_opti']=0
