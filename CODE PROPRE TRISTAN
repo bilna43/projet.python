@@ -1,0 +1,665 @@
+
+######## On importe les données
+
+import pandas as pd
+import numpy as np
+import calendar
+
+meteo=pd.read_excel("/Users/tiber/Documents/Projet Python/Metéo 2020.xlsx")
+prevision= pd.read_excel("/Users/tiber/Documents/Projet Python/Données de l'AFP prévision.xlsx")
+conso=pd.read_excel("/Users/tiber/Documents/Projet Python/consommation-quotidienne-brute-regionale.xlsx")
+meteo_pic_conso=pd.read_excel("/Users/tiber/Documents/Projet Python/pic-journalier-consommation-brute.xlsx")
+
+
+############################################ Mise au bon format des bases de données 
+
+########################################### On commence par 'prevision'
+
+prevision= pd.read_excel("/Users/tiber/Documents/Projet Python/Données de l'AFP prévision.xlsx")
+
+prevision=prevision[['Région','Optimiste','Laisser faire']].groupby('Région').mean() # On determine les températures moyennes par région, d'où le groupby.mean
+prevision= prevision.reset_index(level='Région')
+
+
+
+
+########################################### On s'occupe maintenant de 'meteo'
+
+def trans_jour(x):
+    return x[8:10]
+    
+def trans_mois(x):
+    return x[5:7]
+
+def opti(reg) :
+    return dict_prev_opti[reg]
+
+def lf (reg):
+    return dict_prev_lf[reg]
+
+Dico_reg={'aquitaine':'Nouvelle-Aquitaine','bretagne':'Bretagne','alsace':'Grand Est','auvergne':'Auvergne Rohne Alpes',
+                                     'franche-comte':'Bourgogne Franche Comté','ardeche':'Auvergne Rohne Alpes',
+                                     'poitou-charentes':'Nouvelle-Aquitaine','rh-ne-alpes':'Auvergne Rohne Alpes',
+                                     'provence-alpes-c-te-d-azur':'Provence-Alpes-Cote-d Azur','limousin': 'Nouvelle-Aquitaine',
+                                     'lorraine':'Grand Est','picardie':'Hauts-de-France','champagne-ardenne':'Grand Est','nord-pas-de-calais':'Hauts-de-France', 
+                                     'bourgogne':'Bourgogne Franche Comté','centre':'Centre-Val de Loire','ile-de-france':'Ile de France','languedoc-roussillon':'Occitanie','midi-pyrenees' :'Occitanie','normandie':'Normandie','pays-de-la-loire':'Pays de la Loire','corse':'to_remove','ile-de-re':'to_remove'}
+
+meteo=meteo.replace({'region': Dico_reg}) #On change le nom des régions pour que ce soit les mêmes entre tout les datasets.
+
+meteo=meteo.drop(meteo[(meteo['region']=='to_remove')].index,axis=0)  #On en profite pour retirer les régions non métropolitaines sur lesquels on a pas de données de consomation.
+
+meteo['TempMoy_Deg']=(meteo['TempMax_Deg']+meteo['TempMin_Deg'])/2 #On créer la colonne de température moyenne
+meteo=meteo[['region', 'day','TempMoy_Deg']] #On séléctionne seulement ces 3 colonnes in fine.
+meteo['day']=meteo['day'].astype(str)
+meteo['Jour']=meteo['day'].transform(trans_jour)
+meteo['Mois']=meteo['day'].transform(trans_mois) #On rejoute ces colonnes pour plus de lisibilité.
+
+#On intégre desormais les sénario optimiste et laisser faire dans la table meteo
+
+dict_prev_opti=prevision[['Région','Optimiste']].to_dict('split')
+dict_prev_opti=dict(dict_prev_opti['data'])
+
+meteo['Temp_opti']=meteo['region'].transform(opti)+meteo['TempMoy_Deg']
+    
+
+dict_prev_lf=prevision[['Région','Laisser faire']].to_dict('split')
+dict_prev_lf=dict(dict_prev_lf['data'])
+
+meteo['Temp_lf']=meteo['region'].transform(lf)+meteo['TempMoy_Deg']
+
+########################################### On nettoie désormais la base 'meteo_pic_conso'
+
+meteo_pic_conso=meteo_pic_conso[['date','pic_journalier_consommation','temperature_moyenne']]
+
+
+# On rajoute ces quelques données à la main pour donner plus de pondération aux haute températures et ainsi un modéle plus fiable sur l'estimation de la consommation d'énergie lorsque la température est élevé. Ces données ajoutés suivent sont evidememment cohérente avec les données existantes.
+
+
+
+########################################### On nettoie désormais la base 'conso'
+def trans_annee(x):
+    return x[0:4]
+
+def trans_timetofloat(x):
+    return x.hour+x.minute/60.0
+
+def jour_semaine(x):
+    int_mois=int(x[5:7])
+    int_jour=int(x[8:10])
+    return calendar.weekday(2020,int_mois,int_jour)
+
+conso['Année']=conso['date_heure'].apply(trans_annee)
+conso=conso[ (conso['Année']=='2020')] ##On selectionne l'année 2020
+
+conso=conso[['date','heure','region','consommation_brute_gaz_totale','consommation_brute_electricite_rte']] ## On séléctionne les colonnes qu'on veut garder
+
+
+
+conso.columns=['Date','Heure','Region','Consommation brute gaz (MW)','Consommation brute elecricite (MW)']
+
+conso['Consommation brute totale (MW)']=conso['Consommation brute gaz (MW)']+conso['Consommation brute elecricite (MW)']
+
+
+conso['Region']=conso['Region'].map({'Provence-Alpes-C√¥te d\'Azur':'Provence-Alpes-Cote-d Azur',
+                             '√éle-de-France':'Ile de France',
+                             'Nouvelle-Aquitaine':'Nouvelle-Aquitaine',
+                             'Occitanie':'Occitanie',
+                             'Grand Est':'Grand Est',
+                             'Pays de la Loire':'Pays de la Loire',
+                             'Bretagne' : 'Bretagne',
+                             'Hauts-de-France': 'Hauts-de-France',
+                             'Centre-Val de Loire': 'Centre-Val de Loire',
+                             'Normandie': 'Normandie',
+                             'Bourgogne-Franche-Comt√©':'Bourgogne Franche Comté',
+                             'Auvergne-Rh√¥ne-Alpes':'Auvergne Rohne Alpes'}) ## Les noms de régions ont une même appelation que les df precedent
+
+## On donne des colonnes précise pour les jours et l'heure
+                               
+conso['Heure']=conso['Heure'].transform(trans_timetofloat)
+conso['Date']=conso['Date'].astype(str)
+conso['Jour']=conso['Date'].transform(trans_jour)
+conso['Mois']=conso['Date'].transform(trans_mois)
+conso['Jour semaine']=conso['Date'].transform(jour_semaine)
+conso['Mois']=conso['Mois'].astype(int)
+
+## On implémente le dico des jours de la semaine pour plus de clareté
+
+conso['Jour semaine'] = conso['Jour semaine'].map({0:'Dimanche',1:'Lundi',2:'Mardi',3:'Mercredi',
+                                                   4:'Jeudi',5:'Vendredi',6:'Samedi'})
+
+    
+
+## On écrit la liste région que l'on utilisera par la suite, notamment pour les graphiques
+
+Regions = ["Provence-Alpes-Cote-d Azur", 'Ile de France','Nouvelle-Aquitaine', 'Occitanie', 'Bourgogne Franche Comté','Grand Est', 'Pays de la Loire', 'Bretagne', 'Hauts-de-France','Centre-Val de Loire', 'Normandie', 'Auvergne Rohne Alpes']
+Pop_region = {'Provence-Alpes-Cote-d Azur':5055700,'Ile de France':12278200,'Nouvelle-Aquitaine':6000000,'Occitanie':5924000,'Grand Est':5511700,'Pays de la Loire':3801000,'Bretagne':3340400,'Hauts-de-France':5962700,'Centre-Val de Loire':2559100,'Normandie':3303500,'Bourgogne Franche Comté':2783000,'Auvergne Rohne Alpes':8032400}
+
+Tab_Date=['2020-01-09','2020-03-01','2020-05-01','2020-07-01','2020-09-01','2020-11-01','2020-12-31']
+Tab_Date2=['01-Janv','01-Mars','01-Mai','01-Jui','01-Sept','01-Nov','31-Dec']
+
+
+## On pondére par le nombre d'habitant par régions pour pouvoir determiner des résultat à l'échelle de la France
+for reg in Regions :
+    conso['Consogaz_ag (MW)']=conso['Consommation brute gaz (MW)']/Pop_region[reg]*67500000/12
+    conso['Consoelec_ag (MW)']=conso['Consommation brute elecricite (MW)']/Pop_region[reg]*67500000/12
+    
+## On définit ces deux dataframe que l'on utilisera par la suite
+
+consogaz= conso[['Mois','Jour','Jour semaine','Heure','Region','Consommation brute gaz (MW)','Date','Consogaz_ag (MW)']]
+consoelec=conso[['Mois','Jour','Jour semaine','Heure','Region','Consommation brute elecricite (MW)','Date','Consoelec_ag (MW)']]
+
+
+consogaz['Consommation brute gaz (MW)'].replace('', np.nan, inplace=True)
+consogaz['Consogaz_ag (MW)'].replace('', np.nan, inplace=True)
+consoelec['Consommation brute elecricite (MW)'].replace('', np.nan, inplace=True)
+consoelec['Consoelec_ag (MW)'].replace('', np.nan, inplace=True)
+
+
+consogaz.dropna(subset=['Consommation brute gaz (MW)','Consogaz_ag (MW)'], inplace=True)
+consoelec.dropna(subset=['Consommation brute elecricite (MW)','Consoelec_ag (MW)'], inplace=True)
+
+## On creer des colonnes de mesure d'energie en W pour plus de clareté pour la suite
+
+conso['Consommation brute totale (W)']=conso['Consommation brute totale (MW)']*1000000
+consogaz['Consommation brute gaz (W)']=consogaz['Consommation brute gaz (MW)']*1000000
+consoelec['Consommation brute elec (W)']=consoelec['Consommation brute elecricite (MW)']*1000000
+
+
+
+
+
+
+
+
+
+################################ PARTIE 2 : STAT DES
+
+### Les Fonctions
+
+import matplotlib.pyplot as plt
+from scipy.stats import pearsonr
+
+def pond_pop(x):
+    return Pop_region[x]
+## Les données que nous avons étant par région, il nous faut considérer le nombre d'habitant par région pour déterminer des résultats agrégée (à l'echelle de la France)
+
+def lissage(Lx,Ly,p):
+    '''Fonction qui débruite une courbe par une moyenne glissante
+    sur 2P+1 points'''
+    Lxout=[]
+    Lyout=[]
+    Lxout = Lx[p: -p]
+    for index in range(p, len(Ly)-p):
+        average = np.mean(Ly[index-p : index+p+1])
+        Lyout.append(average)
+    return Lxout,Lyout
+## Cette fonction retourne les données pour lissé linéairement les données
+
+
+####### Premier Graphe sur la consommation de Gaz et d'élécricité sur l'année 2020 à l'echelle de la France
+#####On lisse car les données ne sont pas identiquement distribués
+
+conso_moyenne_gaz=consogaz[['Date','Consogaz_ag (MW)']].groupby('Date').mean()
+conso_moyenne_gaz=conso_moyenne_gaz.reset_index(level='Date')
+conso_moyenne_gaz=conso_moyenne_gaz.sort_values(by='Date')
+lissgaz=lissage(conso_moyenne_gaz['Date'],conso_moyenne_gaz['Consogaz_ag (MW)'],3)
+
+conso_moyenne_elec=consoelec[['Date','Consoelec_ag (MW)']].groupby('Date').mean()
+conso_moyenne_elec=conso_moyenne_elec.reset_index(level='Date')
+conso_moyenne_elec=conso_moyenne_elec.sort_values(by='Date')
+lisselec=lissage(conso_moyenne_elec['Date'],conso_moyenne_elec['Consoelec_ag (MW)'],3)
+
+plt.plot(lissgaz[0],lissgaz[1],label='Gaz')
+plt.plot(lisselec[0],lisselec[1],label='Electricité')
+plt.title('Evolution de la consommation en gaz et electricité en France en 2020')
+plt.xticks(Tab_Date,Tab_Date2)
+plt.xlabel('Date')
+plt.ylabel('Consommation (MW)')
+plt.legend()
+plt.show()
+
+#######  Il y a visiblement une corrélation entre la consommation de gaz et d'éléctricité, on verifie ca : 
+corr_elec_gaz=pearsonr(conso_moyenne_gaz['Consogaz_ag (MW)'],conso_moyenne_elec['Consoelec_ag (MW)'])
+print(corr_elec_gaz)
+
+##### On en profite pour regarder les statistiques basiques sur les datasets
+conso_moyenne_gaz.describe()
+
+
+
+####### On étudie desormais la consommation de gaz et d'éléctricité en heure par heure à l'échelle de la france (en loccurence l'été)
+
+consogaz_ete=consogaz[(consogaz['Mois']<9) & (consogaz['Mois']>5)]
+consoelec_ete=consoelec[(consoelec['Mois']<9) & (consoelec['Mois']>5)]
+
+
+consogaz_ete['Consogaz/hab']=consogaz_ete['Consommation brute gaz (W)']/consogaz_ete['Region'].transform(pond_pop)
+conso_moy_gaz_heure_pond_ete=consogaz_ete[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_gaz_heure_pond_ete=conso_moy_gaz_heure_pond_ete.reset_index(level='Heure')
+
+consoelec_ete['Consogaz/hab']=consoelec_ete['Consommation brute elec (W)']/consoelec_ete['Region'].transform(pond_pop)
+conso_moy_elec_heure_pond_ete=consoelec_ete[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_elec_heure_pond_ete=conso_moy_elec_heure_pond_ete.reset_index(level='Heure')
+
+
+plt.plot(conso_moy_gaz_heure_pond_ete['Heure'],conso_moy_gaz_heure_pond_ete['Consogaz/hab'],label="Gaz")
+plt.plot(conso_moy_elec_heure_pond_ete['Heure'],conso_moy_elec_heure_pond_ete['Consogaz/hab'],label="Electricité")
+plt.title('Evolution de la consomation par heure en été par habitant')
+plt.xticks(range(0,24))
+plt.xlabel('Heure')
+plt.ylabel('Consommation estivale moyenne par habitant ')
+plt.legend()
+plt.show()
+
+
+####### On etudie desormais la consommation de gaz et d'éléctricité heure par heure en hiver
+
+consogaz_hiver=consogaz[(consogaz['Mois']<4) | (consogaz['Mois']==12) | (consogaz['Mois']==11)]
+consoelec_hiver=consoelec[(consoelec['Mois']<4) | (consoelec['Mois']==12) | (consoelec['Mois']==11)]
+
+
+consogaz_hiver['Consogaz/hab']=consogaz_hiver['Consommation brute gaz (W)']/consogaz_hiver['Region'].transform(pond_pop)
+conso_moy_gaz_heure_pond_hiver=consogaz_hiver[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_gaz_heure_pond_hiver=conso_moy_gaz_heure_pond_hiver.reset_index(level='Heure')
+
+consoelec_hiver['Consogaz/hab']=consoelec_hiver['Consommation brute elec (W)']/consoelec_hiver['Region'].transform(pond_pop)
+conso_moy_elec_heure_pond_hiver=consoelec_hiver[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_elec_heure_pond_hiver=conso_moy_elec_heure_pond_hiver.reset_index(level='Heure')
+
+
+plt.plot(conso_moy_gaz_heure_pond_hiver['Heure'],conso_moy_gaz_heure_pond_hiver['Consogaz/hab'],label='Gaz')
+plt.plot(conso_moy_elec_heure_pond_hiver['Heure'],conso_moy_elec_heure_pond_hiver['Consogaz/hab'],label='Electricité')
+plt.title('Evolution de la consomation par heure en hiver par habitant')
+plt.xticks(range(0,24))
+plt.xlabel('Heure')
+plt.ylabel('Consommation hivernale moyenne par habitant')
+plt.legend()
+plt.show()
+
+
+#####Sur un meme graphique on observe desormais la différence d'utilisation d'élécricité en été et en hiver
+
+consoelec_ete=consoelec[(consoelec['Mois']<9) & (consoelec['Mois']>5)]
+consoelec_ete['Consogaz/hab']=consoelec_ete['Consommation brute elec (W)']/consoelec_ete['Region'].transform(pond_pop)
+conso_moy_elec_heure_pond_ete=consogaz_ete[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_elec_heure_pond_ete=conso_moy_elec_heure_pond_ete.reset_index(level='Heure')
+
+
+consoelec_hiver=consoelec[(consoelec['Mois']<4) | (consoelec['Mois']==12) | (consoelec['Mois']==11)]
+consoelec_hiver['Consogaz/hab']=consoelec_hiver['Consommation brute elec (W)']/consoelec_hiver['Region'].transform(pond_pop)
+conso_moy_elec_heure_pond_hiver=consoelec_hiver[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_elec_heure_pond_hiver=conso_moy_elec_heure_pond_hiver.reset_index(level='Heure')
+
+plt.plot(conso_moy_elec_heure_pond_hiver['Heure'],conso_moy_elec_heure_pond_hiver['Consogaz/hab'],label='Consomation en Hiver',color='r')
+plt.plot(conso_moy_elec_heure_pond_ete['Heure'],conso_moy_elec_heure_pond_ete['Consogaz/hab'], label= 'Consommation en été',color='g')
+plt.legend(loc=7)
+plt.title('Evolution de la consomation en élétricité par heure par habitant (W)')
+plt.xlabel('Heure')
+plt.ylabel('Consommation en éléctricité (par hab)')
+plt.show()
+
+##### De meme avec le gaz
+
+consogaz_ete=consogaz[(consogaz['Mois']<9) & (consogaz['Mois']>5)]
+consogaz_ete['Consogaz/hab']=consogaz_ete['Consommation brute gaz (W)']/consogaz_ete['Region'].transform(pond_pop)
+conso_moy_gaz_heure_pond_ete=consogaz_ete[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_gaz_heure_pond_ete=conso_moy_gaz_heure_pond_ete.reset_index(level='Heure')
+
+consogaz_hiver=consogaz[(consogaz['Mois']<4) | (consogaz['Mois']==12) | (consogaz['Mois']==11)]
+consogaz_hiver['Consogaz/hab']=consogaz_hiver['Consommation brute gaz (W)']/consogaz_hiver['Region'].transform(pond_pop)
+conso_moy_gaz_heure_pond_hiver=consogaz_hiver[['Heure','Consogaz/hab']].groupby('Heure').mean()
+conso_moy_gaz_heure_pond_hiver=conso_moy_gaz_heure_pond_hiver.reset_index(level='Heure')
+
+
+plt.plot(conso_moy_gaz_heure_pond_hiver['Heure'],conso_moy_gaz_heure_pond_hiver['Consogaz/hab'],label= "Hiver",c='r')
+plt.plot(conso_moy_gaz_heure_pond_ete['Heure'],conso_moy_gaz_heure_pond_ete['Consogaz/hab'],label="Été",c='g')
+plt.title('Evolution de la consomation par heure et par habitant (W)')
+plt.legend()
+plt.xticks(np.arange(0, 24,1))
+plt.ylabel('Consommation gaz hivernale par habitant')
+plt.xlabel('Heure')
+plt.show()
+
+## Etudes des différence de consommation entre Semaine week end
+
+conso['Population Region']= conso['Region'].transform(pond_pop)
+conso_sem=conso[(conso['Jour semaine']=='Samedi') | (conso['Jour semaine']=='Dimanche') ]
+conso_sem.dropna(subset=['Consommation brute totale (W)'], inplace=True)
+
+conso_we =conso[(conso['Jour semaine']=='Lundi') | (conso['Jour semaine']=='Dimanche') | (conso['Jour semaine']=='Mardi')| (conso['Jour semaine']=='Mercredi') | (conso['Jour semaine']=='Jeudi')| (conso['Jour semaine']=='Vendredi')]
+conso_we.dropna(subset=['Consommation brute totale (W)'], inplace=True)
+
+conso_we_moy= conso_we[['Heure','Consommation brute totale (W)']].groupby('Heure').mean()
+conso_we_moy= conso_we_moy.reset_index(level='Heure')
+
+conso_sem_moy=conso_sem[['Heure','Consommation brute totale (W)']].groupby('Heure').mean()
+conso_sem_moy=conso_sem_moy.reset_index(level='Heure')
+
+plt.plot(conso_we_moy['Heure'],conso_we_moy['Consommation brute totale (W)'],label= "Consommation en week end",c='g')
+
+
+plt.plot(conso_sem_moy['Heure'],conso_sem_moy['Consommation brute totale (W)'],label="Consommation en semaine",c='r')
+plt.legend()
+plt.xticks(np.arange(0, 24,1))
+plt.ylabel('Consommation d énergie (W)')
+plt.xlabel('Heure')
+plt.title('Consommation en énergie en France selon les heures')
+plt.show()
+
+print(conso_sem.mean())
+print(conso_we.mean())
+
+
+######################################## Etudes de la consommation en fonction des différentes régions et des saisons
+### Ce qu'on fait la est un peu prés identique pour les différents cas : Gaz été','Gaz hiver','Electricité été','Electricité hiver'. L'idée est d'observer les différeneces de consommation par regions 
+
+tab_moy=pd.DataFrame(np.empty(shape=(4,12)),columns = conso['Region'].unique(),index=['Gaz été','Gaz hiver','Electricité été','Electricité hiver'])
+    
+for reg in conso['Region'].unique():
+    consogaz_reg=consogaz[consogaz['Region']==reg]
+    consogaz_ete_reg=consogaz_reg[(consogaz['Mois']<9) & (consogaz_reg['Mois']>5)]
+    consogaz_ete_reg['Consogaz/hab']=consogaz_ete_reg['Consommation brute gaz (W)']/Pop_region[reg]
+    conso_moy_gaz_heure_pond_ete_reg=consogaz_ete_reg[['Heure','Consogaz/hab']].groupby('Heure').mean()
+    conso_moy_gaz_heure_pond_ete_reg=conso_moy_gaz_heure_pond_ete_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_gaz_heure_pond_ete_reg['Heure'],conso_moy_gaz_heure_pond_ete_reg['Consogaz/hab'],label=reg)
+    
+    tab_moy.at['Gaz été',reg]=conso_moy_gaz_heure_pond_ete_reg['Consogaz/hab'].mean()
+
+    plt.legend()
+    plt.xticks(np.arange(0, 24,1))
+    plt.legend(bbox_to_anchor= (1.2,1))
+    plt.ylabel('Consommation de Gaz par habitant (W)')
+    plt.xlabel('Heure')
+    plt.title('Consommation de gaz par habitant en été')
+    
+## Test Affichage de toutes les régions Hiver GAZ
+
+for reg in conso['Region'].unique():
+
+    consogaz_reg=consogaz[consogaz['Region']==reg]
+    consogaz_hiv_reg=consogaz_reg[(consogaz_reg['Mois']<4) | (consogaz_reg['Mois']==12) | (consogaz_reg['Mois']==11)]
+    consogaz_hiv_reg['Consogaz/hab']=consogaz_hiv_reg['Consommation brute gaz (W)']/Pop_region[reg]
+    conso_moy_gaz_heure_pond_hiv_reg=consogaz_hiv_reg[['Heure','Consogaz/hab']].groupby('Heure').mean()
+    conso_moy_gaz_heure_pond_hiv_reg=conso_moy_gaz_heure_pond_hiv_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_gaz_heure_pond_hiv_reg['Heure'],conso_moy_gaz_heure_pond_hiv_reg['Consogaz/hab'],label=reg)
+    plt.legend(bbox_to_anchor= (1.2,1))
+    
+    tab_moy.at['Gaz hiver',reg]=conso_moy_gaz_heure_pond_hiv_reg['Consogaz/hab'].mean()
+    
+    plt.xticks(np.arange(0, 24,1))
+    plt.ylabel('Consommation de Gaz (W) ')
+    plt.xlabel('Heure')
+    plt.title('Consommation de Gaz par habitant en hiver(W)')
+    
+    
+## Test Affichage de toutes les régions Hiver ELEC
+for reg in conso['Region'].unique():
+    consoelec_reg=consoelec[consoelec['Region']==reg]
+    consoelec_hiv_reg=consoelec_reg[(consoelec_reg['Mois']<4) | (consoelec_reg['Mois']==12) | (consoelec_reg['Mois']==11)]
+    consoelec_hiv_reg['Consoelec/hab']=consoelec_hiv_reg['Consommation brute elec (W)']/Pop_region[reg]
+    conso_moy_elec_heure_pond_hiv_reg=consoelec_hiv_reg[['Heure','Consoelec/hab']].groupby('Heure').mean()
+    conso_moy_elec_heure_pond_hiv_reg=conso_moy_elec_heure_pond_hiv_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_elec_heure_pond_hiv_reg['Heure'],conso_moy_elec_heure_pond_hiv_reg['Consoelec/hab'],label=reg)
+    
+    tab_moy.at['Electricité hiver',reg]=conso_moy_elec_heure_pond_hiv_reg['Consoelec/hab'].mean()
+
+    
+    plt.legend()
+    plt.xticks(np.arange(0, 24,1))
+    plt.legend(bbox_to_anchor= (1.2,1))
+    plt.ylabel('Consommation élécricité (W)')
+    plt.xlabel('Heure')
+    plt.title('Consommation d élécricité par habitant en hiver')
+
+## Test Affichage de toutes les régions ETE ELEC
+
+for reg in conso['Region'].unique():
+    consoelec_reg=consoelec[consoelec['Region']==reg]
+    consoelec_ete_reg= consoelec_reg[(consoelec['Mois']<9) & (consoelec_reg['Mois']>5)]
+    consoelec_ete_reg['Consoelec/hab']=consoelec_ete_reg['Consommation brute elec (W)']/Pop_region[reg]
+    conso_moy_elec_heure_pond_ete_reg=consoelec_ete_reg[['Heure','Consoelec/hab']].groupby('Heure').mean()
+    conso_moy_elec_heure_pond_ete_reg=conso_moy_elec_heure_pond_ete_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_elec_heure_pond_ete_reg['Heure'],conso_moy_elec_heure_pond_ete_reg['Consoelec/hab'],label=reg)
+    plt.legend()
+    
+    tab_moy.at['Electricité été',reg]=conso_moy_elec_heure_pond_ete_reg['Consoelec/hab'].mean()
+
+    plt.legend(bbox_to_anchor= (1.2,1))
+    plt.xticks(np.arange(0, 24,1))
+    plt.ylabel('Consommation élécricité (W)')
+    plt.xlabel('Heure',fontsize=15)
+    plt.title('Consommation d élécricité par habitant en été')
+    
+## On affihce désomais le tableau des moyennes de comparaison pour en tirer des informations par régions
+## Les trucs observées directemment qui sont interessant : 1/ Faible consommation d'éléctricité en Ilde de France, logique car petit logemement. La consommation estivale de la provence alpes cote d'azur et preque la meme que celle estivale : Conséquence du tourisme et des residence secondaire/ 3/ LEs regions du sud consomment moins l'hiver... D'autres sont a extraitre, je ne me suis pas attardé dessus
+
+
+print(tab_moy)
+    
+    
+## Rebellote en analysant cette fois ci sans distinctions de l'élécricité et du gaz. Ici c'est la conso en été
+for reg in conso['Region'].unique():
+    conso_reg=conso[conso['Region']==reg]
+    conso_ete_reg= conso_reg[(conso_reg['Mois']<9) & (conso_reg['Mois']>5)]
+    conso_ete_reg['Consoelec/hab']=conso_ete_reg['Consommation brute totale (W)']/Pop_region[reg]
+    conso_ete_reg = conso_ete_reg.dropna(subset=['Consoelec/hab'])
+    conso_moy_heure_pond_ete_reg=conso_ete_reg[['Heure','Consoelec/hab']].groupby('Heure').mean()
+    conso_moy_heure_pond_ete_reg=conso_moy_heure_pond_ete_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_heure_pond_ete_reg['Heure'],conso_moy_heure_pond_ete_reg['Consoelec/hab'],label=reg)
+    plt.legend()
+    plt.legend(bbox_to_anchor= (1.2,1))
+    plt.xticks(np.arange(0, 24,1))
+    plt.ylabel('Consommation d énergie(W)')
+    plt.xlabel('Heure')
+    plt.title('Consommation en énergie par habitant en été')
+plt.show()
+    
+
+## Cette fois ci la conso hivernale
+
+for reg in conso['Region'].unique():
+    conso_reg=conso[conso['Region']==reg]
+    conso_hiv_reg= conso_reg[(conso_reg['Mois']<4) | (conso_reg['Mois']==11) | (conso_reg['Mois']==12)]   
+    conso_hiv_reg['Consoelec/hab']=conso_hiv_reg['Consommation brute totale (W)']/Pop_region[reg]
+    conso_hiv_reg = conso_hiv_reg.dropna(subset=['Consoelec/hab'])
+    conso_moy_heure_pond_hiv_reg=conso_hiv_reg[['Heure','Consoelec/hab']].groupby('Heure').mean()
+    conso_moy_heure_pond_hiv_reg=conso_moy_heure_pond_hiv_reg.reset_index(level='Heure')
+    plt.plot(conso_moy_heure_pond_hiv_reg['Heure'],conso_moy_heure_pond_hiv_reg['Consoelec/hab'],label=reg)
+    plt.legend()
+
+    plt.legend(bbox_to_anchor= (1.2,1))
+    plt.xticks(np.arange(0, 24,1))
+    plt.ylabel('Consommation d énergie(W)')
+    plt.xlabel('Heure')
+    plt.title('Consommation en énergie par habitant en hiver')
+plt.show()
+
+
+
+########## Désormais on code notre modéle de prédiction
+
+### Les fonctions que nous utiliserons : 
+    
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score
+from sklearn.metrics import mean_squared_error
+import operator
+
+lin = LinearRegression()
+
+def conso_opti_moy_reg(reg):
+    a=meteo[meteo['region']==reg]['Conso_opti_pred']
+    moy_mod=a.mean()
+    return moy_mod
+
+def conso2020_moy_reg(reg):
+    a=meteo[meteo['region']==reg]['Conso_2020_pred']
+    moy_mod=a.mean()
+    return moy_mod
+
+def conso_lf_moy_reg(reg):
+    a=meteo[meteo['region']==reg]['Conso_lf_pred']
+    moy_mod=a.mean()
+    return moy_mod
+
+def plot_reg(reg):                          ####### Cette fonction permet de plot par région directement
+
+    x=meteo[meteo['region']== reg]['day']
+    y=meteo[meteo['region']==reg]['Conso_2020_pred']
+    z=meteo[meteo['region']==reg]['Conso_lf_pred']
+    w=meteo[meteo['region']==reg]['Conso_opti_pred']
+    fig, ax = plt.subplots(figsize=(15, 15))
+    plt.plot(lissage(x,y,3)[0],lissage(x,y,3)[1],color='r',label='Consommation 2020')
+    plt.plot(lissage(x,z,3)[0],lissage(x,z,3)[1], color='g',label='Consommation sc laisser faire')
+    plt.plot(lissage(x,w,3)[0],lissage(x,w,3)[1], color='m',label= 'Consommation sc optimal')
+    plt.legend()
+    plt.xticks(Tab_Date,Tab_Date2)
+    plt.title('Consommation en élécricité et gaz par jour')
+    plt.xlabel('Mois')
+    plt.ylabel('Consommation en élécricité et gaz')
+    plt.show()
+
+def prediction(pred):
+    predarray = np.array([[pred]])
+    a=lin.predict(poly.fit_transform(predarray))
+    return a[0][0]
+
+def Choixdeg (x,y,degree):                          ####### Cette fonction renvoie la mesure d'erreur du modéle en fonction du degrés du polynome, ceci pour obtenir la meilleure régression polynomiale possible
+    polynomial_features= PolynomialFeatures(degree=degree)
+    x_poly = polynomial_features.fit_transform(x)
+    model = LinearRegression()
+    model.fit(x_poly, y)
+    y_poly_pred = model.predict(x_poly)
+    rmse = np.sqrt(mean_squared_error(y,y_poly_pred))
+    r2 = r2_score(y,y_poly_pred)
+    sort_axis = operator.itemgetter(0)
+    sorted_zip = sorted(zip(x,y_poly_pred), key=sort_axis)
+    x_p, y_poly_pred_P = zip(*sorted_zip)
+    return rmse, x_p, y_poly_pred_P,r2
+
+  
+### On ajoute simplement quelque valeurs cohérente aux valeurs données pour mieux considérer le modéle lorsque la température moyenne est élevé
+x=meteo_pic_conso['temperature_moyenne'].to_numpy()
+x2=np.array([30,29,29,28,28,26,28,30,29])
+x= np.append(x,x2)
+x=x.reshape(-1,1)
+
+y=meteo_pic_conso['pic_journalier_consommation'].to_numpy()
+y2=np.array([57000,55700,57000,54500,55475,53800,53400,55000,55200])
+y=np.append(y,y2)
+y=y.reshape(-1,1)
+    
+## On détermine avec la fonction Choixdeg le meillleur degrés   
+r2_list = np.zeros(50)
+rmselist = np.zeros(50)
+x_p_list = [None]*50
+y_poly_pred_P_list=[None]*50
+
+for i in np.arange(1, 51):
+   rmselist[i-1] ,x_p_list[i-1],y_poly_pred_P_list[i-1],r2_list[i-1]= Choixdeg (x,y,i)
+
+
+
+### On plot :
+        
+plt.plot(np.arange(1, 51), rmselist, color='r',label='MSE')
+plt.xticks(np.arange(0, 50,2))
+plt.title('Calcul du MSE selon le degrés du polynôme')
+plt.show()
+
+plt.plot(np.arange(1, 51), r2_list, color='g',label='R2')
+plt.xticks(np.arange(0, 50,2))
+plt.xlabel('Degrés')
+plt.ylabel('R2')
+plt.title(' R2 en fonction du degrés du polynôme')
+plt.show()
+    
+Min=list(rmselist).index(min(rmselist))
+Max=list(r2_list).index(max(r2_list))
+
+ 
+
+#on transforme les variables X et Y de maniére a ce qu'elle soit lisible dans le programme suivant 
+X= meteo_pic_conso['temperature_moyenne'].to_numpy().reshape(-1,1)
+Y = meteo_pic_conso['pic_journalier_consommation'].to_numpy().reshape(-1,1)
+
+  
+#On découpe la base d'apprentissage et la base de test
+  
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size = 0.2, random_state=5)    
+
+
+def evalPolynonmialRegression(degree):
+    #entrainement du modèle
+    polynomial_features= PolynomialFeatures(degree=degree)
+    X_train_poly = polynomial_features.fit_transform(X_train)
+    X_test_poly = polynomial_features.fit_transform(X_test)
+    model = LinearRegression()
+    model.fit(X_train_poly, Y_train)
+    # Evaluation du training set
+ 
+    y_train_predict = model.predict(X_train_poly)
+    rmse = (np.sqrt(mean_squared_error(Y_train, y_train_predict)))
+    r2 = r2_score(Y_train, y_train_predict)
+ 
+ 
+    # Evaluation du testing set
+    y_test_predict = model.predict(X_test_poly)
+    rmse = (np.sqrt(mean_squared_error(Y_test, y_test_predict)))
+    r2 = r2_score(Y_test, y_test_predict)
+    
+    return model,r2 ,rmse
+
+#On choisit le degrés le plus convainquant parmis ceux minimisant le rse et maximisant le R2, en loccurence 6
+
+poly=PolynomialFeatures(6)
+
+#Puis on plot
+
+plt.plot(x_p_list[6],y_poly_pred_P_list[6],color='r',linewidth=3)
+plt.scatter(x, y)
+plt.title('Corrélation température consommation energie')
+plt.xlabel('Température')
+plt.ylabel('Consommation en énergie')
+
+#On creer le modéle de prédiciton désormais
+
+X_poly = poly.fit_transform(x)
+poly.fit(X_poly, y)
+lin.fit(X_poly, y)
+
+#### On applique la regression a nos données
+
+meteo = meteo.dropna()
+meteo = meteo.groupby(['region','day']).mean()
+meteo = meteo.reset_index(level='region')
+meteo = meteo.reset_index(level='day')
+meteo['Conso_opti_pred']= meteo['Temp_opti'].apply(prediction)
+meteo['Conso_lf_pred']= meteo['Temp_lf'].apply(prediction)
+meteo['Conso_2020_pred']= meteo['TempMoy_Deg'].apply(prediction)
+
+##### On peut plot n'importe quelle région, et analyser les conséquence en générale.
+plot_reg('Hauts-de-France')  ##### On analyse une baisse de conso en été pour les scenario 2050, et un niveau stable en hiver
+plot_reg('Provence-Alpes-Cote-d Azur') #### Plus de consommation en été en 2050, toujours moins en Hiver
+
+
+
+
+# UNE DATAVIZ POUR NABIZ
+
+
+
+Tab_conso_moy = pd.DataFrame(columns=['Conso_2020','Conso Opti','Conso Lf'],index=Regions)
+Tab_conso_moy= Tab_conso_moy.reset_index()
+Tab_conso_moy['Pic_Conso_opti(MW)/Jour']=Tab_conso_moy['index'].apply(conso_opti_moy_reg)
+Tab_conso_moy['Pic_Conso_2020/Jour']=Tab_conso_moy['index'].apply(conso2020_moy_reg)
+Tab_conso_moy['Pic_Conso_lf(MW)/Jour']=Tab_conso_moy['index'].apply(conso_lf_moy_reg)
+Tab_conso_moy['Evolution 2020 / Opti']=(1-Tab_conso_moy['Pic_Conso_2020/Jour']/Tab_conso_moy['Pic_Conso_lf(MW)/Jour'])*100
+
+
+
+# A travers ce dataframe, on peut etudier les variations de consommation d'energie selon les différents scnéario. Je pense qu'il peut etre interessant de plot une carte de la france avec les régions, et les colorier en fonction de l'évolution de la consommation ( bleu si ca bouge pas trop, rouge sinon) 
+
+
