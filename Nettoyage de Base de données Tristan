@@ -1,0 +1,154 @@
+import pandas as pd
+import numpy as np
+import calendar
+
+meteo=pd.read_excel("/Users/tiber/Documents/Projet Python/Metéo 2020.xlsx")
+prevision= pd.read_excel("/Users/tiber/Documents/Projet Python/Données de l'AFP prévision.xlsx")
+conso=pd.read_excel("/Users/tiber/Documents/Projet Python/consommation-quotidienne-brute-regionale.xlsx")
+meteo_pic_conso=pd.read_excel("/Users/tiber/Documents/Projet Python/pic-journalier-consommation-brute.xlsx")
+
+
+############################################ Mise au bon format des bases de données 
+
+########################################### On commence par 'prevision'
+
+prevision= pd.read_excel("/Users/tiber/Documents/Projet Python/Données de l'AFP prévision.xlsx")
+
+prevision=prevision[['Région','Optimiste','Laisser faire']].groupby('Région').mean() # On determine les températures moyennes par région, d'où le groupby.mean
+prevision= prevision.reset_index(level='Région')
+
+
+
+
+########################################### On s'occupe maintenant de 'meteo'
+
+def trans_jour(x):
+    return x[8:10]
+    
+def trans_mois(x):
+    return x[5:7]
+
+def opti(reg) :
+    return dict_prev_opti[reg]
+
+def lf (reg):
+    return dict_prev_lf[reg]
+
+Dico_reg={'aquitaine':'Nouvelle-Aquitaine','bretagne':'Bretagne','alsace':'Grand Est','auvergne':'Auvergne Rohne Alpes',
+                                     'franche-comte':'Bourgogne Franche Comté','ardeche':'Auvergne Rohne Alpes',
+                                     'poitou-charentes':'Nouvelle-Aquitaine','rh-ne-alpes':'Auvergne Rohne Alpes',
+                                     'provence-alpes-c-te-d-azur':'Provence-Alpes-Cote-d Azur','limousin': 'Nouvelle-Aquitaine',
+                                     'lorraine':'Grand Est','picardie':'Hauts-de-France','champagne-ardenne':'Grand Est','nord-pas-de-calais':'Hauts-de-France', 
+                                     'bourgogne':'Bourgogne Franche Comté','centre':'Centre-Val de Loire','ile-de-france':'Ile de France','languedoc-roussillon':'Occitanie','midi-pyrenees' :'Occitanie','normandie':'Normandie','pays-de-la-loire':'Pays de la Loire','corse':'to_remove','ile-de-re':'to_remove'}
+
+meteo=meteo.replace({'region': Dico_reg}) #On change le nom des régions pour que ce soit les mêmes entre tout les datasets.
+
+meteo=meteo.drop(meteo[(meteo['region']=='to_remove')].index,axis=0)  #On en profite pour retirer les régions non métropolitaines sur lesquels on a pas de données de consomation.
+
+meteo['TempMoy_Deg']=(meteo['TempMax_Deg']+meteo['TempMin_Deg'])/2 #On créer la colonne de température moyenne
+meteo=meteo[['region', 'day','TempMoy_Deg']] #On séléctionne seulement ces 3 colonnes in fine.
+meteo['day']=meteo['day'].astype(str)
+meteo['Jour']=meteo['day'].transform(trans_jour)
+meteo['Mois']=meteo['day'].transform(trans_mois) #On rejoute ces colonnes pour plus de lisibilité.
+
+#On intégre desormais les sénario optimiste et laisser faire dans la table meteo
+
+dict_prev_opti=prevision[['Région','Optimiste']].to_dict('split')
+dict_prev_opti=dict(dict_prev_opti['data'])
+
+meteo['Temp_opti']=meteo['region'].transform(opti)+meteo['TempMoy_Deg']
+    
+
+dict_prev_lf=prevision[['Région','Laisser faire']].to_dict('split')
+dict_prev_lf=dict(dict_prev_lf['data'])
+
+meteo['Temp_lf']=meteo['region'].transform(lf)+meteo['TempMoy_Deg']
+
+########################################### On nettoie désormais la base 'meteo_pic_conso'
+
+meteo_pic_conso=meteo_pic_conso[['date','pic_journalier_consommation','temperature_moyenne']]
+
+x=meteo_pic_conso['temperature_moyenne'].to_numpy()
+x2=np.array([30,29,29,28,28,26,28,30,29])
+x= np.append(x,x2)
+x=x.reshape(-1,1)
+
+y=meteo_pic_conso['pic_journalier_consommation'].to_numpy()
+y2=np.array([57000,55700,57000,54500,55475,53800,53400,55000,55200])
+y=np.append(y,y2)
+y=y.reshape(-1,1)
+
+# On rajoute ces quelques données à la main pour donner plus de pondération aux haute températures et ainsi un modéle plus fiable sur l'estimation de la consommation d'énergie lorsque la température est élevé. Ces données ajoutés suivent sont evidememment cohérente avec les données existantes.
+
+
+
+########################################### On nettoie désormais la base 'conso'
+def trans_annee(x):
+    return x[0:4]
+
+def trans_timetofloat(x):
+    return x.hour+x.minute/60.0
+
+def jour_semaine(x):
+    int_mois=int(x[5:7])
+    int_jour=int(x[8:10])
+    return calendar.weekday(2020,int_mois,int_jour)
+
+conso['Année']=conso['date_heure'].apply(trans_annee)
+conso=conso[ (conso['Année']=='2020')] ##On selectionne l'année 2020
+
+conso=conso[['date','heure','region','consommation_brute_gaz_totale','consommation_brute_electricite_rte']] ## On séléctionne les colonnes qu'on veut garder
+
+
+
+conso.columns=['Date','Heure','Region','Consommation brute gaz (MW)','Consommation brute elecricite (MW)']
+
+conso['Consommation brute totale (MW)']=conso['Consommation brute gaz (MW)']+conso['Consommation brute elecricite (MW)']
+
+
+conso['Region']=conso['Region'].map({'Provence-Alpes-C√¥te d\'Azur':'Provence-Alpes-Cote-d Azur',
+                             '√éle-de-France':'Ile de France',
+                             'Nouvelle-Aquitaine':'Nouvelle-Aquitaine',
+                             'Occitanie':'Occitanie',
+                             'Grand Est':'Grand Est',
+                             'Pays de la Loire':'Pays de la Loire',
+                             'Bretagne' : 'Bretagne',
+                             'Hauts-de-France': 'Hauts-de-France',
+                             'Centre-Val de Loire': 'Centre-Val de Loire',
+                             'Normandie': 'Normandie',
+                             'Bourgogne-Franche-Comt√©':'Bourgogne Franche Comté',
+                             'Auvergne-Rh√¥ne-Alpes':'Auvergne Rohne Alpes'}) ## Les noms de régions ont une même appelation que les df precedent
+
+
+                               
+conso['Heure']=conso['Heure'].transform(trans_timetofloat)
+conso['Date']=conso['Date'].astype(str)
+conso['Jour']=conso['Date'].transform(trans_jour)
+conso['Mois']=conso['Date'].transform(trans_mois)
+conso['Jour semaine']=conso['Date'].transform(jour_semaine)
+conso['Mois']=conso['Mois'].astype(int)
+
+## On a donné des colonnes précise pour les jours et l'heure
+
+conso['Jour semaine'] = conso['Jour semaine'].map({0:'Dimanche',1:'Lundi',2:'Mardi',3:'Mercredi',
+                                                   4:'Jeudi',5:'Vendredi',6:'Samedi'})
+
+## On implémente le dico des jours de la semaine pour plus de clareté
+
+
+consogaz= conso[['Mois','Jour','Jour semaine','Heure','Region','Consommation brute gaz (MW)','Date']]
+consoelec=conso[['Mois','Jour','Jour semaine','Heure','Region','Consommation brute elecricite (MW)','Date']]
+
+## On définit ces deux dataframe que l'on utilisera par la suite
+
+consogaz['Consommation brute gaz (MW)'].replace('', np.nan, inplace=True)
+consoelec['Consommation brute elecricite (MW)'].replace('', np.nan, inplace=True)
+
+consogaz.dropna(subset=['Consommation brute gaz (MW)'], inplace=True)
+consoelec.dropna(subset=['Consommation brute elecricite (MW)'], inplace=True)
+
+conso['Consommation brute totale (W)']=conso['Consommation brute totale (MW)']*1000000
+consogaz['Consommation brute gaz (W)']=consogaz['Consommation brute gaz (MW)']*1000000
+consoelec['Consommation brute elec (W)']=consoelec['Consommation brute elecricite (MW)']*1000000
+
+## On creer des colonnes de mesure d'energie en W pour plus de clareté pour la suite
