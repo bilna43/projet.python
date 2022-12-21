@@ -134,8 +134,8 @@ conso['Jour semaine'] = conso['Jour semaine'].map({0:'Dimanche',1:'Lundi',2:'Mar
 Regions = ["Provence-Alpes-Cote-d Azur", 'Ile de France','Nouvelle-Aquitaine', 'Occitanie', 'Bourgogne Franche Comté','Grand Est', 'Pays de la Loire', 'Bretagne', 'Hauts-de-France','Centre-Val de Loire', 'Normandie', 'Auvergne Rohne Alpes']
 Pop_region = {'Provence-Alpes-Cote-d Azur':5055700,'Ile de France':12278200,'Nouvelle-Aquitaine':6000000,'Occitanie':5924000,'Grand Est':5511700,'Pays de la Loire':3801000,'Bretagne':3340400,'Hauts-de-France':5962700,'Centre-Val de Loire':2559100,'Normandie':3303500,'Bourgogne Franche Comté':2783000,'Auvergne Rohne Alpes':8032400}
 
-Tab_Date=['2020-01-09','2020-03-01','2020-05-01','2020-07-01','2020-09-01','2020-11-01','2020-12-31']
-Tab_Date2=['01-Janv','01-Mars','01-Mai','01-Jui','01-Sept','01-Nov','31-Dec']
+#Tab_Date=['2020-01-09','2020-03-01','2020-05-01','2020-07-01','2020-09-01','2020-11-01','2020-12-31']
+#Tab_Date2=['01-Janv','01-Mars','01-Mai','01-Jui','01-Sept','01-Nov','31-Dec']
 
 
 ## On pondére par le nombre d'habitant par régions pour pouvoir determiner des résultat à l'échelle de la France
@@ -198,6 +198,9 @@ def lissage(Lx,Ly,p):
 
 ####### Premier Graphe sur la consommation de Gaz et d'élécricité sur l'année 2020 à l'echelle de la France
 #####On lisse car les données ne sont pas identiquement distribués
+Tab_Date=['2020-01-09','2020-03-01','2020-05-01','2020-07-01','2020-09-01','2020-11-01','2020-12-31']
+Tab_Date2=['01-Janv','01-Mars','01-Mai','01-Jui','01-Sept','01-Nov','31-Dec']
+
 
 conso_moyenne_gaz=consogaz[['Date','Consogaz_ag (MW)']].groupby('Date').mean()
 conso_moyenne_gaz=conso_moyenne_gaz.reset_index(level='Date')
@@ -336,8 +339,6 @@ conso_sem_moy=conso_sem[['Heure','Consommation brute totale (W)']].groupby('Heur
 conso_sem_moy=conso_sem_moy.reset_index(level='Heure')
 
 plt.plot(conso_we_moy['Heure'],conso_we_moy['Consommation brute totale (W)'],label= "Consommation en week end",c='g')
-
-
 plt.plot(conso_sem_moy['Heure'],conso_sem_moy['Consommation brute totale (W)'],label="Consommation en semaine",c='r')
 plt.legend()
 plt.xticks(np.arange(0, 24,1))
@@ -477,6 +478,9 @@ plt.show()
 
 
 ########## Désormais on code notre modéle de prédiction
+
+Tab_Date=['2020-01-09','2020-03-01','2020-05-01','2020-07-01','2020-09-01','2020-11-01','2020-12-31']
+Tab_Date2=['01-Janv','01-Mars','01-Mai','01-Jui','01-Sept','01-Nov','31-Dec']
 
 ### Les fonctions que nous utiliserons : 
     
